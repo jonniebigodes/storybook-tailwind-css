@@ -1,0 +1,247 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="How to plug Tailwind into CRA and Storybook" />
+
+# Foreword
+
+At the time of writing and implementing this approach there's a issue with CRA+Tailwind and PostCSS.
+
+With that and to avoid issues with npm package resolution npm will be used as opposed to yarn.
+
+## Setup
+
+- Create react app project with the following command:
+
+```shell
+   npx create-react-app my-app --use-npm
+```
+
+- Add Storybook with the following command
+
+```shell
+   npx -p @storybook/cli sb init
+```
+
+### Add Tailwind
+
+As mentioned above there's a issue with PostCSS latest version (8.x) and CRA. Based on the documentation the versions for Tailwind in use will be bumped back to a previous version.
+
+More specifically a compatibility version of it. (Fingers crossed).
+
+- Run the following command:
+
+```shell
+npm install tailwindcss@npm:@tailwindcss/postcss7-compat postcss@^7 autoprefixer@^9
+```
+
+See explanation [here](https://tailwindcss.com/docs/installation#post-css-7-compatibility-build)
+
+- Add Craco
+
+```shell
+npm install @craco/craco
+```
+
+- Replace CRA boilerplate scripts with the following:
+
+```json
+{
+  "scripts": {
+    "start": "craco start",
+    "build": "craco build",
+    "test": "craco test"
+  }
+}
+```
+
+TLDR regarding [craco](https://github.com/gsoft-inc/craco) inclusion. It seems that CRA will not allow overriding PostCSS configuration natively....
+
+- Create a `craco.config.js`file at the root level with the following inside:
+
+```js
+// craco.config.js
+
+module.exports = {
+  style: {
+    postcss: {
+      plugins: [require("tailwindcss"), require("autoprefixer")],
+    },
+  },
+};
+```
+
+- Create a minimal `tailwind.config.js` file at the root of your project:
+
+```js
+// tailwind.config.js
+module.exports = {
+  purge: [],
+  darkMode: false, // or 'media' or 'class'
+  theme: {
+    extend: {},
+  },
+  variants: {
+    extend: {},
+  },
+  plugins: [],
+};
+```
+
+Thinking of using the `npx tailwindcss init`? Think again. You might run into the following terminal message:
+
+```shell
+
+npx: installed 83 in 5.642s
+Cannot find module 'autoprefixer'
+Require stack:
+- /Users/your-user/.npm/_npx/7966/lib/node_modules/tailwindcss/lib/cli/commands/build.js
+- /Users/your-user/.npm/_npx/7966/lib/node_modules/tailwindcss/lib/cli/commands/index.js
+- /Users/your-user/.npm/_npx/7966/lib/node_modules/tailwindcss/lib/cli/main.js
+- /Users/your-user/.npm/_npx/7966/lib/node_modules/tailwindcss/lib/cli.js
+
+```
+
+Best to create the file manually.
+
+- Next adjust `tailwind.config.js` to purge the styles for production
+
+```js
+// tailwind.config.js
+module.exports = {
+  purge: [],
+  purge: ["./src/**/*.{js,jsx,ts,tsx}", "./public/index.html"],
+  darkMode: false, // or 'media' or 'class'
+  theme: {
+    extend: {},
+  },
+  variants: {
+    extend: {},
+  },
+  plugins: [],
+};
+```
+
+- Create a root level `postcss.config.js` with the following:
+
+```js
+// postcss.config.js
+
+const tailwindcss = require("tailwindcss");
+
+module.exports = () => ({
+  plugins: [tailwindcss],
+});
+```
+
+- Update `src/index.css` with baseline Tailwind css
+
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+```
+
+- Update `.storybook/main.js` to the following:
+
+```js
+// .storybook/main.js
+
+const path = require("path");
+
+module.exports = {
+  stories: [],
+  addons: [],
+  webpackFinal: async (config) => {
+    config.module.rules.push({
+      test: /\.css$/,
+      use: [
+        {
+          loader: "postcss-loader",
+          options: {
+            sourceMap: true,
+            config: {
+              path: "./.storybook/",
+            },
+          },
+        },
+      ],
+    });
+
+    return config;
+  },
+};
+
+```
+
+- Update `.storybook/preview.js' to the include the styles.
+
+```js
+// .storybook/preview.js
+
+import "../src/index.css";
+
+export const parameters = {
+  actions: { argTypesRegex: "^on[A-Z].*" },
+};
+```
+
+- Create example component (`MyComponent.js`) and associated stories (`MyComponent.stories.js`)
+
+```js
+// MyComponent.js
+
+import PropTypes from "prop-types";
+
+const MyComponent = ({ propertyA, propertyB }) => {
+  return (
+    <div className="bg-white rounded shadow border p-6 w-64">
+      <h2 className="text-3xl font-bold mb-4 mt-0">
+        This is a simple Tailwind component inside Storybook
+      </h2>
+      <h3>This is a prop passed in</h3>
+      <h4>{ propertyA }</h4>
+      <h3 className="text-gray-700 text-sm">This is another prop passed in</h3>
+      <h4>{ propertyB }</h4>
+    </div>
+  );
+};
+
+MyComponent.defaultProps = {
+  propertyA: "A",
+  propertyB: "B",
+};
+MyComponent.propTypes = {
+  propertyA: PropTypes.string,
+  propertyB: PropTypes.string,
+};
+
+export default MyComponent;
+```
+
+```js
+// MyComponent.stories.js
+
+import React from "react";
+
+import MyComponent from "./My-Component";
+
+/* eslint-disable */
+export default {
+  component: MyComponent,
+  decorators: [(story) => <div className="container mx-auto flex flex-row">{story()}</div>],
+  title:'Example component with Tailwind'
+};
+
+/* eslint-enable */
+
+const Template = (args) => <MyComponent {...args} />;
+
+export const Example = Template.bind({});
+
+Example.args = {
+  propertyA: "One",
+  propertyB: "Two",
+};
+```
+
+- Run the following command `npm run storybook`
